@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { google } from 'googleapis';
 import { fetchGmailTransactions, gmailConfigured, getGoogleAuthUrl, getOAuthClientFromSession, exchangeCode } from './src/gmail.js';
 import { buildInsights, demoTransactions } from './src/analytics.js';
+import { enrichInsightsWithLLM, llmConfigured } from './src/llm.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -34,6 +35,7 @@ app.get('/healthz', (_req, res) => res.json({ ok: true }));
 app.get('/api/config', (req, res) => {
   res.json({
     gmailConfigured,
+    llmConfigured,
     connected: Boolean(req.session.tokens),
     email: req.session.email || null
   });
@@ -67,11 +69,11 @@ app.post('/auth/logout', (req, res) => {
 
 app.get('/api/insights', async (req, res) => {
   try {
-    if (req.query.demo === '1') return res.json(buildInsights(demoTransactions()));
+    if (req.query.demo === '1') return res.json(await enrichInsightsWithLLM(buildInsights(demoTransactions())));
     if (!req.session.tokens) return res.status(401).json({ error: 'Connect Gmail first.' });
     const auth = getOAuthClientFromSession(req.session);
     const transactions = await fetchGmailTransactions(auth);
-    res.json(buildInsights(transactions));
+    res.json(await enrichInsightsWithLLM(buildInsights(transactions)));
   } catch (error) {
     console.error('Insight generation failed:', error);
     res.status(500).json({ error: 'We could not analyze Gmail right now. Please try again.' });

@@ -53,6 +53,7 @@ Browser
 - **Explainable flags:** repeat merchants are compared with their median historical payment. A payment is flagged when it is materially larger, or when a high-value payment is from a merchant seen only once.
 - **Upcoming payments:** due/renewal language is parsed when present, and payments due within the next 45 days are surfaced alongside unusual transactions.
 - **No AI by default:** financial extraction is deterministic and inspectable. A production version could use an LLM only for ambiguous emails, with redaction, structured JSON validation, and strict retention controls.
+- **Optional LLM enrichment:** set `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` to use an OpenAI-compatible provider such as Agent Router. The server uses strict JSON schemas for email extraction and narrative generation; the browser never receives the API key.
 - **Demo mode:** sample data makes the product reviewable before OAuth credentials are configured.
 
 ## Production hardening

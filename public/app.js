@@ -14,7 +14,7 @@ function showDashboard(data, mode = '') {
   currentData = data;
   $('welcome').classList.add('hidden');
   $('dashboard').classList.remove('hidden');
-  $('dataMode').textContent = mode ? `· ${mode}` : '';
+  $('dataMode').textContent = `${mode ? `· ${mode}` : ''}${data.llmUsed ? ' · AI ASSISTED' : ''}`;
   $('scanMeta').textContent = `${data.transactionCount} transactions found · analyzed ${new Date(data.generatedAt).toLocaleString('en-IN')}`;
   renderInsights(data.insights || []);
   $('totalSpend').textContent = formatMoney(data.total);

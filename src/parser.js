@@ -60,14 +60,18 @@ function dueDateFrom(text, receivedDate) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-export function parseEmail(message) {
+export function emailText(message) {
   const headers = message.payload?.headers || [];
   const subject = header(headers, 'Subject');
   const from = header(headers, 'From');
   const dateHeader = header(headers, 'Date');
   const parts = walkParts(message.payload);
   const body = `${parts.text.join(' ')} ${parts.html.map(stripHtml).join(' ')}`.replace(/\s+/g, ' ').trim();
-  const text = `${subject} ${from} ${body}`;
+  return { subject, from, dateHeader, body, text: `${subject} ${from} ${body}`.trim() };
+}
+
+export function parseEmail(message) {
+  const { subject, from, dateHeader, body, text } = emailText(message);
   const amount = amountFrom(text);
   if (!amount || amount.amount <= 0) return null;
   const date = new Date(dateHeader || Number(message.internalDate));

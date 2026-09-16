@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { parseEmail } from './parser.js';
+import { extractTransactionWithLLM, llmConfigured } from './llm.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 export const gmailConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -56,9 +57,11 @@ export async function fetchGmailTransactions(auth) {
 
   const transactions = [];
   for (let i = 0; i < ids.length; i += 10) {
-    const batch = await Promise.all(ids.slice(i, i + 10).map(async ({ id }) => {
+    const batch = await Promise.all(ids.slice(i, i + 10).map(async ({ id }, offset) => {
       const message = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
-      return parseEmail(message.data);
+      const baseline = parseEmail(message.data);
+      if (!llmConfigured || i + offset >= Number(process.env.OPENAI_MAX_EMAILS || 200)) return baseline;
+      return extractTransactionWithLLM(message.data, baseline);
     }));
     transactions.push(...batch.filter(Boolean));
   }
