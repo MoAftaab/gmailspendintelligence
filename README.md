@@ -404,6 +404,12 @@ Tests use Node.js native `node:test` runner. The suite covers:
 
 Currently deployed as a **Render** Node web service from the `master` branch.
 
+### Render keep-alive
+
+The repository includes [`.github/workflows/render-keepalive.yml`](.github/workflows/render-keepalive.yml), which calls the public `/healthz` endpoint every 10 minutes. This keeps the free Render web service warm during normal GitHub Actions operation and makes cold-start delays less likely.
+
+This is a convenience for the assessment deployment, not a production uptime guarantee: GitHub Actions schedules can be delayed or paused, and Render can still restart an instance. A paid Render instance is the reliable option when the service must remain continuously available.
+
 ### Render Configuration
 
 | Setting | Value |
