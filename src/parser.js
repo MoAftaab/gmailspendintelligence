@@ -26,8 +26,26 @@ function merchantFrom(from, subject) {
   return name.replace(/["']/g, '').replace(/\s+/g, ' ').trim() || 'Unknown merchant';
 }
 
+export function normalizeCurrency(value = '₹') {
+  const raw = String(value).trim().toUpperCase();
+  if (['₹', 'INR', 'RS', 'RS.', 'RUPEE', 'RUPEES'].includes(raw)) return '₹';
+  if (['$', 'USD', 'US$'].includes(raw)) return '$';
+  if (['€', 'EUR'].includes(raw)) return '€';
+  if (['£', 'GBP'].includes(raw)) return '£';
+  return String(value).trim() || '₹';
+}
+
+const transactionEvidence = /receipt|invoice|payment(?:\s+(?:confirmation|successful|processed|received))?|charged|debited|amount\s+(?:paid|due)|order\s+(?:total|confirmation)|bill(?:ing)?|renewal|transaction(?:\s+id)?|refund|credit\s+note|upi|emi/i;
+const promotionalEvidence = /exclusive|discount|%\s*off|limited\s+time|newsletter|unsubscribe|promotion|promo|coupon|sale|free\s+trial|special\s+offer|marketing/i;
+
+export function isLikelyFinancialText(text = '') {
+  if (!transactionEvidence.test(text)) return false;
+  const hasStrongPaymentEvidence = /receipt|invoice|payment\s+(?:confirmation|successful|processed|received)|charged|debited|amount\s+(?:paid|due)|order\s+total|bill(?:ing)?|transaction\s+id|refund|credit\s+note|upi|emi/i.test(text);
+  return !promotionalEvidence.test(text) || hasStrongPaymentEvidence;
+}
+
 function amountFrom(text) {
-  const currency = text.match(/(?:₹|INR|Rs\.?|\$|USD|€|EUR|£|GBP)/i)?.[0] || '₹';
+  const currency = normalizeCurrency(text.match(/(?:₹|INR|Rs\.?|\$|USD|€|EUR|£|GBP)/i)?.[0] || '₹');
   const candidates = [...text.matchAll(/(?:₹|INR|Rs\.?|\$|USD|€|EUR|£|GBP)\s*([\d,]+(?:\.\d{1,2})?)/gi)]
     .map((m) => ({ value: Number(m[1].replace(/,/g, '')), index: m.index || 0 }));
   if (!candidates.length) {
@@ -41,15 +59,22 @@ function amountFrom(text) {
 
 function categoryFor(text) {
   const rules = [
-    ['Travel', /flight|airline|hotel|booking|uber|ola|makemytrip|airbnb|travel/i],
-    ['Food & dining', /restaurant|food|swiggy|zomato|doordash|cafe|grocery|instacart/i],
-    ['Shopping', /order confirmation|shopping|amazon|flipkart|myntra|walmart|retail/i],
-    ['Software & subscriptions', /adobe|notion|openai|netflix|spotify|subscription|saas|cloud|microsoft|google one/i],
-    ['Utilities & bills', /electricity|water bill|internet|mobile bill|utility|insurance|rent|statement/i],
-    ['Health', /pharmacy|hospital|clinic|medical|health/i],
-    ['Finance', /bank|credit card|loan|emi|investment|broker|payment confirmation/i]
+    ['Software & subscriptions', /adobe|notion|openai|chatgpt|netflix|spotify|prime|youtube premium|subscription|renewal|membership|saas|hosting|domain|api plan|cloud service|microsoft 365|google one/i],
+    ['Travel', /flight|airline|hotel|booking|uber|ola|lyft|makemytrip|airbnb|travel|railway|train|bus ticket|parking|toll/i],
+    ['Food & dining', /restaurant|food|swiggy|zomato|doordash|cafe|grocery|instacart|blinkit|zepto|bigbasket|meal|dining/i],
+    ['Shopping', /order confirmation|order total|shopping|amazon|flipkart|myntra|walmart|retail|store|product|cart/i],
+    ['Utilities & bills', /electricity|water bill|internet|mobile bill|utility|insurance|rent|broadband|gas bill|recharge|telecom|phone bill/i],
+    ['Health', /pharmacy|hospital|clinic|medical|health|doctor|diagnostic|medicine/i],
+    ['Finance', /bank|credit card|loan|emi|investment|broker|payment confirmation|upi|phonepe|paytm|razorpay|stripe|cashfree|account statement|tax|fee/i]
   ];
   return rules.find(([, pattern]) => pattern.test(text))?.[0] || 'Other';
+}
+
+function transactionTypeFor(text) {
+  if (/refund|refunded|credit note|cashback|reversal|chargeback/i.test(text)) return 'refund';
+  if (/salary|payroll|interest credited|deposit received|income received/i.test(text)) return 'income';
+  if (/money transfer|funds transfer|transferred to|sent to another account/i.test(text)) return 'transfer';
+  return 'expense';
 }
 
 function dueDateFrom(text, receivedDate) {
@@ -72,6 +97,7 @@ export function emailText(message) {
 
 export function parseEmail(message) {
   const { subject, from, dateHeader, body, text } = emailText(message);
+  if (!isLikelyFinancialText(text)) return null;
   const amount = amountFrom(text);
   if (!amount || amount.amount <= 0) return null;
   const date = new Date(dateHeader || Number(message.internalDate));
@@ -86,6 +112,7 @@ export function parseEmail(message) {
     merchant,
     amount: Number(amount.amount.toFixed(2)),
     currency: amount.currency,
+    transactionType: transactionTypeFor(text),
     date: date.toISOString(),
     dueDate: dueDateFrom(text, date),
     category: categoryFor(text),

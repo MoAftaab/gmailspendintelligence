@@ -1,4 +1,6 @@
-const money = (value, currency = '₹') => `${currency}${Math.round(value).toLocaleString('en-IN')}`;
+import { normalizeCurrency } from './parser.js';
+
+const money = (value, currency = '₹') => `${normalizeCurrency(currency)}${Math.round(value).toLocaleString('en-IN')}`;
 const monthKey = (date) => new Date(date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 const median = (values) => {
   if (!values.length) return 0;
@@ -6,28 +8,38 @@ const median = (values) => {
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
+const signedAmount = (item) => item.transactionType === 'refund' ? -item.amount : ['income', 'transfer'].includes(item.transactionType) ? 0 : item.amount;
 const aggregate = (transactions, key) => Object.entries(transactions.reduce((out, item) => {
-  const group = item[key];
-  out[group] = (out[group] || 0) + item.amount;
+  const group = item[key] || (key === 'merchant' ? 'Unknown merchant' : 'Other');
+  out[group] = (out[group] || 0) + signedAmount(item);
   return out;
 }, {})).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
 export function buildInsights(input) {
-  const transactions = [...input].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const seen = new Set();
+  const transactions = [...input].filter((item) => {
+    if (!item || !Number.isFinite(Number(item.amount)) || Number(item.amount) <= 0) return false;
+    const key = item.sourceMessageId || item.id || `${item.merchant}:${item.amount}:${item.date}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => new Date(b.date) - new Date(a.date));
   const now = new Date();
-  const upcoming = transactions.filter((item) => item.dueDate && new Date(item.dueDate) >= now && new Date(item.dueDate) <= new Date(now.getTime() + 45 * 86400000)).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
-  const total = transactions.reduce((sum, item) => sum + item.amount, 0);
-  const categories = aggregate(transactions, 'category');
-  const merchants = aggregate(transactions, 'merchant');
+  const upcoming = transactions.filter((item) => item.transactionType !== 'refund' && item.transactionType !== 'income' && item.transactionType !== 'transfer' && item.dueDate && new Date(item.dueDate) >= now && new Date(item.dueDate) <= new Date(now.getTime() + 45 * 86400000)).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+  const total = transactions.reduce((sum, item) => sum + signedAmount(item), 0);
+  const spendTransactions = transactions.filter((item) => !item.transactionType || item.transactionType === 'expense');
+  const spendTotal = spendTransactions.reduce((sum, item) => sum + item.amount, 0);
+  const categories = aggregate(spendTransactions, 'category');
+  const merchants = aggregate(spendTransactions, 'merchant');
   const latestMonth = transactions[0] ? new Date(transactions[0].date).toISOString().slice(0, 7) : null;
-  const latestMonthCategories = aggregate(transactions.filter((item) => new Date(item.date).toISOString().slice(0, 7) === latestMonth), 'category');
+  const latestMonthCategories = aggregate(spendTransactions.filter((item) => new Date(item.date).toISOString().slice(0, 7) === latestMonth), 'category');
   const monthlyMap = transactions.reduce((out, item) => {
     const key = monthKey(item.date);
-    out[key] = (out[key] || 0) + item.amount;
+    out[key] = (out[key] || 0) + signedAmount(item);
     return out;
   }, {});
   const monthly = Object.entries(monthlyMap).reverse().map(([month, total]) => ({ month, total }));
-  const groupedMerchants = transactions.reduce((out, item) => {
+  const groupedMerchants = spendTransactions.reduce((out, item) => {
     (out[item.merchant] ||= []).push(item);
     return out;
   }, {});
@@ -38,10 +50,11 @@ export function buildInsights(input) {
 
   const unusual = [];
   for (const item of transactions) {
-    const peers = groupedMerchants[item.merchant].filter((peer) => peer.id !== item.id).map((peer) => peer.amount);
+    if (item.transactionType && item.transactionType !== 'expense') continue;
+    const peers = (groupedMerchants[item.merchant] || []).filter((peer) => peer.id !== item.id).map((peer) => peer.amount);
     const baseline = median(peers);
     const isNewMerchant = peers.length === 0;
-    if (isNewMerchant && item.amount >= Math.max(10000, total * 0.12)) {
+    if (isNewMerchant && item.amount >= Math.max(10000, spendTotal * 0.12)) {
       unusual.push({ ...item, reason: `${money(item.amount, item.currency)} to a merchant not seen elsewhere in the scan.` });
     } else if (peers.length >= 2 && item.amount >= Math.max(baseline * 1.8, baseline + 1000)) {
       unusual.push({ ...item, reason: `${money(item.amount, item.currency)} is materially above this merchant's typical ${money(baseline, item.currency)} payment.` });

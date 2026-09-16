@@ -13,7 +13,7 @@
   <div class="shell">
     <header class="topbar">
       <a class="brand" href="/"><span class="brand-mark">L</span><span>ledgerly</span></a>
-      <div class="status-wrap"><span class="status-dot"></span><span id="statusLabel">Private by design</span></div>
+      <div class="topbar-actions"><div class="status-wrap"><span class="status-dot"></span><span id="statusLabel">Private by design</span></div><button id="topDisconnectBtn" class="text-button hidden">Disconnect</button></div>
     </header>
     <main>
       <section id="welcome" class="hero">
@@ -25,7 +25,7 @@
         <div class="feature-row"><div><span class="feature-icon">◎</span><strong>Find the signal</strong><small>Receipts, bills & subscriptions</small></div><div><span class="feature-icon">↗</span><strong>Spot the unusual</strong><small>Outliers worth a second look</small></div><div><span class="feature-icon">↗</span><strong>Trace every insight</strong><small>Back to the original email</small></div></div>
       </section>
       <section id="dashboard" class="dashboard hidden">
-        <div class="dash-head"><div><div class="eyebrow">SPENDING OVERVIEW <span id="dataMode"></span></div><h2>Your money, made legible.</h2><p id="scanMeta" class="muted"></p></div><div class="dash-actions"><button id="refreshBtn" class="secondary">↻ Refresh scan</button><button id="disconnectBtn" class="text-button">Disconnect</button></div></div>
+        <div class="dash-head"><div><div class="eyebrow">SPENDING OVERVIEW <span id="dataMode"></span></div><h2>Your money, made legible.</h2><p id="scanMeta" class="muted"></p></div><div class="dash-actions"><div id="aiStatus" class="ai-status hidden" role="status" aria-live="polite"><span class="ai-spinner"></span><span id="aiStatusText">AI insights are being generated…</span><strong id="aiTimer">00:00</strong></div><button id="refreshBtn" class="secondary">↻ Refresh scan</button><button id="disconnectBtn" class="text-button">Disconnect</button></div></div>
         <div id="insightStrip" class="insight-strip"></div>
         <div class="stat-grid"><article class="stat-card featured"><span>Total detected</span><strong id="totalSpend">—</strong><small id="transactionCount">—</small></article><article class="stat-card"><span>Top category</span><strong id="topCategory">—</strong><small id="topCategoryAmount">—</small></article><article class="stat-card"><span>Top merchant</span><strong id="topMerchant">—</strong><small id="topMerchantAmount">—</small></article><article class="stat-card"><span>Recurring payments</span><strong id="recurringCount">—</strong><small id="recurringAmount">—</small></article></div>
         <div class="content-grid"><section class="panel chart-panel"><div class="panel-head"><div><span class="panel-kicker">MOMENTUM</span><h3>Spending over time</h3></div><span class="panel-note">From detected emails</span></div><div id="chart" class="chart"></div></section><section class="panel"><div class="panel-head"><div><span class="panel-kicker">BREAKDOWN</span><h3>Where it goes</h3></div></div><div id="categoryList" class="bar-list"></div></section></div>
@@ -33,6 +33,16 @@
         <section class="panel table-panel"><div class="panel-head"><div><span class="panel-kicker">SOURCE EMAILS</span><h3>Detected transactions</h3></div><span class="panel-note">Newest first</span></div><div class="table-scroll"><table><thead><tr><th>Merchant</th><th>Category</th><th>Date</th><th class="right">Amount</th><th></th></tr></thead><tbody id="transactionTable"></tbody></table></div></section>
       </section>
     </main>
+    <div id="scanOverlay" class="scan-overlay hidden" role="status" aria-live="polite">
+      <div class="scan-card">
+        <div class="scan-orbit"><span></span></div>
+        <div class="eyebrow">SECURE READ-ONLY SCAN</div>
+        <h2 id="scanTitle">Finding the signal…</h2>
+        <p id="scanCopy">Checking transaction emails and preparing your spending story.</p>
+        <div class="scan-progress" aria-hidden="true"><div></div></div>
+        <div class="scan-foot"><span id="scanElapsed">00:00 elapsed</span><span>Gmail → Ledgerly</span></div>
+      </div>
+    </div>
     <footer><span>LEDGERLY / GMAIL SPEND INTELLIGENCE</span><span>Built with read-only Google OAuth</span></footer>
   </div>
   <script src="/app.js"></script>
