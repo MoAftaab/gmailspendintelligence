@@ -45,6 +45,33 @@ test('normalizes Indian currency and removes duplicate source messages', () => {
   assert.equal(data.total, 1200);
 });
 
+test('keeps monthly trend data in chronological order', () => {
+  const data = buildInsights([
+    tx('new', 'Merchant', 100, 'Shopping', '2026-03-01'),
+    tx('old', 'Merchant', 100, 'Shopping', '2025-12-31'),
+    tx('middle', 'Merchant', 100, 'Shopping', '2026-01-01')
+  ]);
+  assert.deepEqual(data.monthly.map((item) => item.monthKey), ['2025-12', '2026-01', '2026-03']);
+});
+
+test('parses Indian day/month due dates explicitly', () => {
+  const message = {
+    id: 'due-date',
+    internalDate: String(Date.now()),
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'Subject', value: 'Invoice payment due' },
+        { name: 'From', value: 'Billing <billing@example.com>' },
+        { name: 'Date', value: new Date().toUTCString() }
+      ],
+      body: { data: Buffer.from('Invoice payment due 05/12/2026. Amount due: ₹500.').toString('base64url') }
+    }
+  };
+  const parsed = parseEmail(message);
+  assert.equal(parsed.dueDate.slice(0, 10), '2026-12-05');
+});
+
 test('rejects promotional newsletters without payment evidence', () => {
   const message = (subject, body) => ({
     id: subject,

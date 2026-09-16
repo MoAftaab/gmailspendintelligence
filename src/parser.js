@@ -81,12 +81,53 @@ function transactionTypeFor(text) {
   return 'expense';
 }
 
+function parseDateToken(raw, fallbackYear) {
+  const numeric = raw.match(/^(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})$/);
+  if (numeric) {
+    let first = Number(numeric[1]);
+    let second = Number(numeric[2]);
+    let third = Number(numeric[3]);
+    let year;
+    let month;
+    let day;
+    if (String(first).length === 4) {
+      year = first;
+      month = second;
+      day = third;
+    } else {
+      year = third < 100 ? 2000 + third : third;
+      // Email dates are interpreted as day/month/year by default. If one
+      // component is greater than 12, use it to disambiguate month/day.
+      if (first > 12) {
+        day = first;
+        month = second;
+      } else if (second > 12) {
+        month = first;
+        day = second;
+      } else {
+        day = first;
+        month = second;
+      }
+    }
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
+    return parsed;
+  }
+  const monthName = raw.match(/^(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,?\s+(\d{4}))?$/i);
+  if (!monthName) return null;
+  const monthIndex = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].findIndex((prefix) => monthName[1].toLowerCase().startsWith(prefix));
+  const year = Number(monthName[3] || fallbackYear);
+  const day = Number(monthName[2]);
+  const parsed = new Date(Date.UTC(year, monthIndex, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === monthIndex && parsed.getUTCDate() === day ? parsed : null;
+}
+
 function dueDateFrom(text, receivedDate) {
   const match = text.match(/(?:due|renewal|renews|next payment|billing date|payment date)[^\d]{0,24}(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?)/i);
   if (!match) return null;
   const raw = match[1];
-  const parsed = /\d{4}/.test(raw) ? new Date(raw) : new Date(`${raw}, ${receivedDate.getFullYear()}`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  const parsed = parseDateToken(raw, receivedDate.getFullYear());
+  return parsed ? parsed.toISOString() : null;
 }
 
 export function emailText(message) {

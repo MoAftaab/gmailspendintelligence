@@ -63,6 +63,8 @@ EMI  refund  cashback
 
 Spam and trash are excluded. Lookback period and message cap are configurable via environment variables.
 
+Likely marketing emails are retained in a separate **Filtered emails** section with a small **Promotional / newsletter** label. They are excluded from transaction counts, totals, categories, merchant rankings, recurring payments, and anomaly alerts unless strong payment evidence is present.
+
 ### 📊 Automatic Extraction & Categorization
 
 The deterministic parser extracts from each email:
@@ -158,6 +160,7 @@ OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://codecraftapi.com/v1
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_MAX_EMAILS=10
+OPENAI_TIMEOUT_MS=30000
 
 # Optional — tweak scan limits
 GMAIL_LOOKBACK_YEARS=2

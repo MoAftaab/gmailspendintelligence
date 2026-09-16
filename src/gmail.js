@@ -56,6 +56,7 @@ async function getMessageWithBackoff(gmail, id) {
       await sleep(1500 * 2 ** attempt);
     }
   }
+  throw new Error(`Unable to retrieve Gmail message ${id}.`);
 }
 
 export async function getHistoryState(auth, startHistoryId) {

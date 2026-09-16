@@ -3,6 +3,7 @@ import { emailText, isLikelyFinancialText, normalizeCurrency } from './parser.js
 
 export const llmConfigured = Boolean(process.env.OPENAI_API_KEY);
 const model = process.env.OPENAI_MODEL || 'gpt-5-mini';
+const llmTimeoutMs = Math.max(5000, Number(process.env.OPENAI_TIMEOUT_MS || 30000));
 const client = llmConfigured ? new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
@@ -93,7 +94,8 @@ async function structuredResponse(instructions, input, schemaName, schema) {
         type: 'json_schema',
         json_schema: { name: schemaName, strict: true, schema }
       },
-      temperature: 0
+      temperature: 0,
+      timeout: llmTimeoutMs
     });
     const content = response.choices?.[0]?.message?.content;
     return content ? JSON.parse(content) : null;

@@ -19,6 +19,7 @@ const normalizeCurrency = (currency = '₹') => {
 };
 const formatMoney = (value, currency = '₹') => `${normalizeCurrency(currency)}${Math.round(value).toLocaleString('en-IN')}`;
 const formatTransactionMoney = (item) => `${item.transactionType === 'refund' ? '-' : ''}${formatMoney(item.amount, item.currency)}`;
+const formatTransactionType = (type) => ({ refund: 'REFUND', income: 'INCOME', transfer: 'TRANSFER' }[type] || '');
 const formatDate = (value) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -125,14 +126,21 @@ function renderInsights(insights, transactions) {
 }
 
 function renderChart(monthly) {
-  const values = monthly.map((x) => x.total);
-  const max = Math.max(...values, 1);
-  $('chart').innerHTML = monthly.length ? monthly.map((item) => `<div class="chart-col"><div class="chart-value">${escapeHtml(formatMoney(item.total))}</div><div class="chart-bar-wrap"><div class="chart-bar" style="height:${Math.max(8, item.total / max * 100)}%"></div></div><div class="chart-label">${escapeHtml(item.month)}</div></div>`).join('') : '<div class="empty">Not enough dated emails to show a trend.</div>';
+  const max = Math.max(...monthly.map((item) => Math.max(0, Number(item.total) || 0)), 1);
+  $('chart').innerHTML = monthly.length ? monthly.map((item) => {
+    const positiveTotal = Math.max(0, Number(item.total) || 0);
+    const height = Math.min(100, positiveTotal / max * 100);
+    const minHeight = height > 0 ? 8 : 0;
+    return `<div class="chart-col"><div class="chart-value">${escapeHtml(formatMoney(item.total))}</div><div class="chart-bar-wrap"><div class="chart-bar" style="height:${height}%;min-height:${minHeight}px"></div></div><div class="chart-label">${escapeHtml(item.month)}</div></div>`;
+  }).join('') : '<div class="empty">Not enough dated emails to show a trend.</div>';
 }
 
 function renderCategories(categories) {
-  const max = Math.max(categories[0]?.total || 1, 1);
-  $('categoryList').innerHTML = categories.slice(0, 6).map((item) => `<div class="bar-item"><div class="bar-meta"><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(formatMoney(item.total))}</strong></div><div class="track"><div style="width:${item.total / max * 100}%"></div></div></div>`).join('') || '<div class="empty">No categories found.</div>';
+  const max = Math.max(...categories.map((item) => Math.max(0, Number(item.total) || 0)), 1);
+  $('categoryList').innerHTML = categories.slice(0, 6).map((item) => {
+    const width = Math.min(100, Math.max(0, Number(item.total) || 0) / max * 100);
+    return `<div class="bar-item"><div class="bar-meta"><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(formatMoney(item.total))}</strong></div><div class="track"><div style="width:${width}%"></div></div></div>`;
+  }).join('') || '<div class="empty">No categories found.</div>';
 }
 
 function renderAlerts(alerts, upcoming) {
@@ -154,7 +162,9 @@ function renderTransactions(items) {
   $('transactionTable').innerHTML = items.slice(0, 30).map((item) => {
     const href = sourceHref(item.sourceUrl);
     const sourceLink = href ? `<a class="source-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">View ↗</a>` : '<span class="muted">—</span>';
-    return `<tr><td><strong>${escapeHtml(item.merchant)}</strong><small>${escapeHtml(item.subject)}</small></td><td><span class="tag">${escapeHtml(item.category)}</span></td><td>${escapeHtml(formatDate(item.date))}</td><td class="right amount">${escapeHtml(formatTransactionMoney(item))}</td><td class="right">${sourceLink}</td></tr>`;
+    const type = formatTransactionType(item.transactionType);
+    const typeTag = type ? `<small class="type-tag type-${item.transactionType}">${type}</small>` : '';
+    return `<tr><td><strong>${escapeHtml(item.merchant)}</strong><small>${escapeHtml(item.subject)}</small></td><td><span class="tag">${escapeHtml(item.category)}</span></td><td>${escapeHtml(formatDate(item.date))}</td><td class="right amount">${escapeHtml(formatTransactionMoney(item))}${typeTag}</td><td class="right">${sourceLink}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">No transactions detected.</td></tr>';
 }
 
@@ -195,7 +205,7 @@ function startAiGeneration(mode) {
   $('aiStatus').classList.remove('ai-status-error');
   $('aiStatusText').textContent = 'AI insights are being generated…';
   $('dataMode').textContent = `${mode === 'demo' ? '· SAMPLE DATA' : '· GMAIL CONNECTED'} · AI GENERATING`;
-  $('scanMeta').textContent += ' · AI narrative timer is running';
+  $('scanMeta').textContent = `${$('scanMeta').textContent.replace(/ · AI narrative timer is running/g, '')} · AI narrative timer is running`;
   const query = mode === 'demo' ? '?demo=1&ai=1' : '?ai=1';
   let aiFailed = false;
   aiRequest = getJson(`/api/insights${query}`)
@@ -218,6 +228,11 @@ async function disconnect() {
 
 async function init() {
   const config = await getJson('/api/config');
+  if (!config.gmailConfigured) {
+    $('connectBtn').disabled = true;
+    $('connectBtn').textContent = 'Gmail connection unavailable';
+    $('statusLabel').textContent = 'Demo mode available';
+  }
   if (config.connected || new URLSearchParams(location.search).get('connected')) {
     $('statusLabel').textContent = config.email || 'Gmail connected';
     $('topDisconnectBtn').classList.remove('hidden');
