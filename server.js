@@ -10,6 +10,7 @@ import { enrichInsightsWithLLM, extractTransactionsWithLLM, llmConfigured } from
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const scanVersion = 'financial-filter-v2';
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '100kb' }));
@@ -99,14 +100,16 @@ app.post('/auth/logout', async (req, res) => {
 });
 
 async function getGmailScan(req, { sync = false } = {}) {
-  if (req.session.gmailScan && !sync) return req.session.gmailScan;
+  const currentScan = req.session.gmailScan?.scanVersion === scanVersion ? req.session.gmailScan : null;
+  if (currentScan && !sync) return currentScan;
   const auth = getOAuthClientFromSession(req.session);
-  if (req.session.gmailScan && sync && req.session.gmailHistoryId) {
+  if (currentScan && sync && req.session.gmailHistoryId) {
     const history = await getHistoryState(auth, req.session.gmailHistoryId);
     req.session.gmailHistoryId = history.historyId;
-    if (!history.changed) return req.session.gmailScan;
+    if (!history.changed) return currentScan;
   }
   const scan = await fetchGmailTransactions(auth, { withLLM: false, includeMessages: true });
+  scan.scanVersion = scanVersion;
   req.session.gmailScan = scan;
   try {
     const profile = await google.gmail({ version: 'v1', auth }).users.getProfile({ userId: 'me' });
@@ -140,6 +143,7 @@ app.get('/api/insights', async (req, res) => {
     const scan = await getGmailScan(req, { sync: req.query.sync === '1' });
     const transactions = req.query.ai === '1' ? await getAiTransactions(req) : scan.transactions;
     const data = buildInsights(transactions);
+    data.filteredMessages = scan.filteredMessages || [];
     if (req.query.ai === '1') return res.json(await enrichInsightsWithLLM(data));
     res.json({ ...data, llmPending: llmConfigured && !scan.aiReady, llmUsed: Boolean(scan.aiReady), llmModel: scan.aiReady ? process.env.OPENAI_MODEL : undefined });
   } catch (error) {

@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { parseEmail } from './parser.js';
+import { emailText, isPromotionalText, parseEmail } from './parser.js';
 import { extractTransactionsWithLLM, llmConfigured } from './llm.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
@@ -106,9 +106,23 @@ export async function fetchGmailTransactions(auth, { withLLM = true, includeMess
   }
 
   const baselines = messages.map((message) => parseEmail(message));
+  const filteredMessages = messages.flatMap((message, index) => {
+    if (baselines[index] || !isPromotionalText(emailText(message).text)) return [];
+    const content = emailText(message);
+    return [{
+      id: message.id,
+      sourceUrl: `https://mail.google.com/mail/u/0/#all/${message.threadId || message.id}`,
+      subject: content.subject || 'Untitled email',
+      sender: content.from || 'Unknown sender',
+      date: content.dateHeader || (message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null),
+      snippet: message.snippet || content.body.slice(0, 180),
+      label: 'Promotional / newsletter',
+      reason: 'Excluded from spending totals because it looks like marketing content without a confirmed payment.'
+    }];
+  });
   if (!withLLM) {
     const transactions = baselines.filter(Boolean);
-    return includeMessages ? { transactions, messages, baselines } : transactions;
+    return includeMessages ? { transactions, messages, baselines, filteredMessages } : transactions;
   }
   if (!llmConfigured) return baselines.filter(Boolean);
 

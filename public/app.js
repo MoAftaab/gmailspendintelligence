@@ -109,6 +109,7 @@ function showDashboard(data, mode = '') {
   renderAlerts(data.unusual, data.upcoming || []);
   renderRecurring(data.recurring);
   renderTransactions(data.transactions);
+  renderFilteredMessages(data.filteredMessages || []);
   if (data.llmUsed) setAiGenerationState(false);
 }
 
@@ -155,6 +156,22 @@ function renderTransactions(items) {
     const sourceLink = href ? `<a class="source-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">View ↗</a>` : '<span class="muted">—</span>';
     return `<tr><td><strong>${escapeHtml(item.merchant)}</strong><small>${escapeHtml(item.subject)}</small></td><td><span class="tag">${escapeHtml(item.category)}</span></td><td>${escapeHtml(formatDate(item.date))}</td><td class="right amount">${escapeHtml(formatTransactionMoney(item))}</td><td class="right">${sourceLink}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">No transactions detected.</td></tr>';
+}
+
+function renderFilteredMessages(items) {
+  const panel = $('filteredPanel');
+  if (!panel) return;
+  if (!items.length) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  $('filteredCount').textContent = items.length;
+  $('filteredList').innerHTML = items.slice(0, 10).map((item) => {
+    const href = sourceHref(item.sourceUrl);
+    const sourceLink = href ? `<a class="source-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Review email ↗</a>` : '';
+    return `<div class="filtered-item"><div><strong>${escapeHtml(item.subject)}</strong><small>${escapeHtml(item.sender)} · ${escapeHtml(item.snippet || '')}</small><p>${escapeHtml(item.reason)}</p></div><div class="filtered-meta"><span class="filter-tag">${escapeHtml(item.label)}</span>${sourceLink}</div></div>`;
+  }).join('');
 }
 
 async function load(mode, sync = false) {

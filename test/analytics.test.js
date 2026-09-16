@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildInsights } from '../src/analytics.js';
-import { normalizeCurrency, parseEmail } from '../src/parser.js';
+import { isPromotionalText, normalizeCurrency, parseEmail } from '../src/parser.js';
 
 const tx = (id, merchant, amount, category, date, recurringCandidate = false) => ({ id, merchant, amount, currency: '₹', category, date, recurringCandidate, sourceUrl: '#' });
 
@@ -60,6 +60,10 @@ test('rejects promotional newsletters without payment evidence', () => {
     }
   });
   assert.equal(parseEmail(message('Exclusive 50% discount', 'Limited time offer. Unsubscribe anytime.')), null);
+  assert.equal(parseEmail(message('Get your exclusive 50% discount today', 'Payment options are available. ₹100. Limited time only. Unsubscribe anytime.')), null);
+  assert.equal(parseEmail(message('Last Chance! Save on a Year of Anime', 'Save on a yearly plan for ₹569. Sign up today.')), null);
+  assert.equal(isPromotionalText('Get your exclusive 50% discount. Payment options available. ₹100. Unsubscribe anytime.'), true);
+  assert.equal(isPromotionalText('Your payment receipt was processed. Amount paid: ₹1,999. Unsubscribe from marketing emails.'), false);
   const receipt = parseEmail(message('Payment receipt', 'Your payment receipt. Amount paid: ₹1,999.'));
   assert.equal(receipt.amount, 1999);
 });

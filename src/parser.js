@@ -35,13 +35,17 @@ export function normalizeCurrency(value = '₹') {
   return String(value).trim() || '₹';
 }
 
-const transactionEvidence = /receipt|invoice|payment(?:\s+(?:confirmation|successful|processed|received))?|charged|debited|amount\s+(?:paid|due)|order\s+(?:total|confirmation)|bill(?:ing)?|renewal|transaction(?:\s+id)?|refund|credit\s+note|upi|emi/i;
-const promotionalEvidence = /exclusive|discount|%\s*off|limited\s+time|newsletter|unsubscribe|promotion|promo|coupon|sale|free\s+trial|special\s+offer|marketing/i;
+const transactionEvidence = /receipt|invoice|payment|charged|debited|amount\s+(?:paid|due)|order\s+(?:total|confirmation)|bill(?:ing)?|renewal|transaction(?:\s+id)?|refund|credit\s+note|upi|emi/i;
+const strongPaymentEvidence = /receipt|invoice|payment\s+(?:receipt|confirmation|successful|processed|received)|(?:payment|transaction)\s+id|charged|debited|amount\s+(?:paid|due)|order\s+(?:total|confirmation)|bill(?:ing)?|refund|credit\s+note|upi|emi/i;
+const promotionalEvidence = /exclusive|discount|%\s*off|limited\s+time|newsletter|unsubscribe|promotion|promo|coupon|sale|free\s+trial|special\s+offer|marketing|last\s+chance|save\s+on|save\s+\d|deal|sign\s+up/i;
+
+export function isPromotionalText(text = '') {
+  return promotionalEvidence.test(text) && !strongPaymentEvidence.test(text);
+}
 
 export function isLikelyFinancialText(text = '') {
   if (!transactionEvidence.test(text)) return false;
-  const hasStrongPaymentEvidence = /receipt|invoice|payment\s+(?:confirmation|successful|processed|received)|charged|debited|amount\s+(?:paid|due)|order\s+total|bill(?:ing)?|transaction\s+id|refund|credit\s+note|upi|emi/i.test(text);
-  return !promotionalEvidence.test(text) || hasStrongPaymentEvidence;
+  return !isPromotionalText(text);
 }
 
 function amountFrom(text) {
