@@ -13,6 +13,9 @@ const port = Number(process.env.PORT || 3000);
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '100kb' }));
+// Render terminates HTTPS at its proxy. Trusting the first proxy is required
+// for express-session to set and read the secure OAuth cookie correctly.
+app.set('trust proxy', 1);
 app.use(session({
   secret: process.env.SESSION_SECRET || 'local-development-only-change-me',
   resave: false,
@@ -22,7 +25,8 @@ app.use(session({
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 1000 * 60 * 60 * 8
-  }
+  },
+  proxy: true
 }));
 
 function requireGmail(req, res, next) {
@@ -52,16 +56,25 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.get('/auth/google', (req, res) => {
+app.get('/auth/google', (req, res, next) => {
   if (!gmailConfigured) return res.status(503).send('Google OAuth is not configured. Copy .env.example to .env and add Google credentials.');
   req.session.oauthState = cryptoRandomState();
-  res.redirect(getGoogleAuthUrl(req.session.oauthState));
+  req.session.save((error) => {
+    if (error) return next(error);
+    res.redirect(getGoogleAuthUrl(req.session.oauthState));
+  });
 });
 
 app.get('/auth/google/callback', async (req, res) => {
   try {
     if (req.query.error) return res.status(400).send('Google sign-in was cancelled or denied. You can try connecting again.');
-    if (!req.query.code || req.query.state !== req.session.oauthState) return res.status(400).send('Invalid OAuth callback.');
+    const hasCode = Boolean(req.query.code);
+    const hasSessionState = Boolean(req.session.oauthState);
+    const stateMatches = hasSessionState && req.query.state === req.session.oauthState;
+    if (!hasCode || !stateMatches) {
+      console.warn('OAuth callback rejected:', { hasCode, hasSessionState, stateMatches });
+      return res.status(400).send('OAuth session expired or opened in another tab. Start the Gmail connection again.');
+    }
     const tokens = await exchangeCode(String(req.query.code));
     req.session.tokens = tokens;
     delete req.session.oauthState;
