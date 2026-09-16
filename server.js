@@ -7,10 +7,15 @@ import { google } from 'googleapis';
 import { fetchGmailTransactions, getHistoryState, gmailConfigured, getGoogleAuthUrl, getOAuthClientFromSession, exchangeCode } from './src/gmail.js';
 import { buildInsights, demoTransactions } from './src/analytics.js';
 import { enrichInsightsWithLLM, extractTransactionsWithLLM, llmConfigured } from './src/llm.js';
+import { analyzeFinancialText, emailText } from './src/parser.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const scanVersion = 'financial-filter-v2';
+const scanVersion = 'financial-events-v3';
+const sessionSecret = process.env.SESSION_SECRET || 'local-development-only-change-me';
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET must be configured in production.');
+}
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: '100kb' }));
@@ -18,7 +23,7 @@ app.use(express.json({ limit: '100kb' }));
 // for express-session to set and read the secure OAuth cookie correctly.
 app.set('trust proxy', 1);
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'local-development-only-change-me',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -81,8 +86,12 @@ app.get('/auth/google/callback', async (req, res) => {
     delete req.session.oauthState;
     const auth = getOAuthClientFromSession(req.session);
     const profile = await google.gmail({ version: 'v1', auth }).users.getProfile({ userId: 'me' });
-    req.session.email = profile.data.emailAddress || null;
+    const email = profile.data.emailAddress || null;
+    await new Promise((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
+    req.session.tokens = tokens;
+    req.session.email = email;
     req.session.gmailHistoryId = profile.data.historyId || null;
+    req.session.scanRevision = 0;
     res.redirect('/?connected=1');
   } catch (error) {
     console.error('OAuth callback failed:', error.message);
@@ -100,7 +109,7 @@ app.post('/auth/logout', async (req, res) => {
 });
 
 async function getGmailScan(req, { sync = false } = {}) {
-  const currentScan = req.session.gmailScan?.scanVersion === scanVersion ? req.session.gmailScan : null;
+  const currentScan = req.session.gmailScan?.scanVersion === scanVersion && req.session.gmailScan?.accountEmail === req.session.email ? req.session.gmailScan : null;
   if (currentScan && !sync) return currentScan;
   const auth = getOAuthClientFromSession(req.session);
   if (currentScan && sync && req.session.gmailHistoryId) {
@@ -110,6 +119,10 @@ async function getGmailScan(req, { sync = false } = {}) {
   }
   const scan = await fetchGmailTransactions(auth, { withLLM: false, includeMessages: true });
   scan.scanVersion = scanVersion;
+  scan.accountEmail = req.session.email;
+  scan.revision = Number(req.session.scanRevision || 0) + 1;
+  scan.scanId = `${req.session.email || 'unknown'}:${scan.revision}`;
+  req.session.scanRevision = scan.revision;
   req.session.gmailScan = scan;
   try {
     const profile = await google.gmail({ version: 'v1', auth }).users.getProfile({ userId: 'me' });
@@ -126,7 +139,25 @@ async function getAiTransactions(req) {
   if (!llmConfigured) return scan.transactions;
   const limit = Math.min(scan.messages.length, Math.max(1, Math.min(Number(process.env.OPENAI_MAX_EMAILS || 10), 10)));
   const enriched = await extractTransactionsWithLLM(scan.messages.slice(0, limit), scan.baselines.slice(0, limit));
+  if (req.session.gmailScan?.scanId !== scan.scanId || req.session.gmailScan?.accountEmail !== req.session.email) {
+    return req.session.gmailScan?.transactions || [];
+  }
+  const rejectedByAI = scan.messages.slice(0, limit).flatMap((message, index) => enriched[index] ? [] : [{
+    ...(() => {
+      const content = emailText(message);
+      const assessment = analyzeFinancialText(content.text);
+      return { amount: assessment.candidate?.candidate?.amount || null, currency: assessment.candidate?.candidate?.currency || null, evidenceText: assessment.candidate?.evidence || null };
+    })(),
+    id: message.id,
+    sourceUrl: `https://mail.google.com/mail/u/0/#all/${message.threadId || message.id}`,
+    subject: message.payload?.headers?.find((header) => header.name?.toLowerCase() === 'subject')?.value || 'Untitled email',
+    sender: message.payload?.headers?.find((header) => header.name?.toLowerCase() === 'from')?.value || 'Unknown sender',
+    snippet: message.snippet || '',
+    label: 'Review needed',
+    reason: 'The AI classifier could not validate this email as a completed financial event, so it was excluded from spending totals.'
+  }]);
   scan.transactions = [...enriched, ...scan.baselines.slice(limit)].filter(Boolean);
+  scan.reviewMessages = [...(scan.reviewMessages || []), ...rejectedByAI].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
   scan.aiReady = true;
   req.session.gmailScan = scan;
   return scan.transactions;
@@ -144,6 +175,10 @@ app.get('/api/insights', async (req, res) => {
     const transactions = req.query.ai === '1' ? await getAiTransactions(req) : scan.transactions;
     const data = buildInsights(transactions);
     data.filteredMessages = scan.filteredMessages || [];
+    data.reviewMessages = scan.reviewMessages || [];
+    data.scanId = scan.scanId;
+    data.scanRevision = scan.revision;
+    data.policyVersion = scan.scanVersion;
     if (req.query.ai === '1') return res.json(await enrichInsightsWithLLM(data));
     res.json({ ...data, llmPending: llmConfigured && !scan.aiReady, llmUsed: Boolean(scan.aiReady), llmModel: scan.aiReady ? process.env.OPENAI_MODEL : undefined });
   } catch (error) {

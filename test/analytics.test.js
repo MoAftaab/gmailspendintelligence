@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildInsights } from '../src/analytics.js';
-import { isPromotionalText, normalizeCurrency, parseEmail } from '../src/parser.js';
+import { analyzeFinancialText, isPromotionalText, normalizeCurrency, parseEmail } from '../src/parser.js';
 
-const tx = (id, merchant, amount, category, date, recurringCandidate = false) => ({ id, merchant, amount, currency: '₹', category, date, recurringCandidate, sourceUrl: '#' });
+const tx = (id, merchant, amount, category, date, recurringCandidate = false) => ({ id, merchant, amount, currency: '₹', category, date, recurringCandidate, sourceUrl: '#', transactionType: 'expense', eventType: 'PURCHASE', paymentStatus: 'COMPLETED', direction: 'OUTGOING' });
 
 test('builds totals and ranked breakdowns', () => {
   const data = buildInsights([
@@ -105,4 +105,87 @@ test('handles refunds and transfers without crashing anomaly analysis', () => {
   assert.equal(data.categories[0].total, 1000);
   assert.equal(data.merchants[0].total, 1000);
   assert.equal(data.unusual.length, 0);
+});
+
+test('keeps failed payments out of the transaction ledger', () => {
+  const text = 'Your payment of ₹999 failed. Update your billing information.';
+  assert.equal(analyzeFinancialText(text).route, 'UNCERTAIN');
+  const message = {
+    id: 'failed-payment',
+    internalDate: String(Date.now()),
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'Subject', value: 'Payment failed' },
+        { name: 'From', value: 'Merchant <billing@example.com>' },
+        { name: 'Date', value: new Date().toUTCString() }
+      ],
+      body: { data: Buffer.from(text).toString('base64url') }
+    }
+  };
+  assert.equal(parseEmail(message), null);
+});
+
+test('does not count upcoming bills as completed spending', () => {
+  const dueDate = new Date(Date.now() + 7 * 86400000).toISOString();
+  const data = buildInsights([{ ...tx('upcoming', 'Internet', 999, 'Utilities & bills', new Date().toISOString()), paymentStatus: 'UPCOMING', eventType: 'BILL_DUE', dueDate }]);
+  assert.equal(data.total, 0);
+  assert.equal(data.categories.length, 0);
+  assert.equal(data.upcoming.length, 1);
+});
+
+test('does not classify cloud training as travel', () => {
+  const message = {
+    id: 'cloud-training',
+    internalDate: String(Date.now()),
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'Subject', value: 'Your cloud training payment receipt' },
+        { name: 'From', value: 'Cloud Provider <billing@example.com>' },
+        { name: 'Date', value: new Date().toUTCString() }
+      ],
+      body: { data: Buffer.from('Your payment was processed successfully. Amount paid: ₹1,000 for cloud service training.').toString('base64url') }
+    }
+  };
+  const parsed = parseEmail(message);
+  assert.equal(parsed.category, 'Software & subscriptions');
+});
+
+test('does not combine different currencies into one total', () => {
+  const data = buildInsights([
+    { ...tx('inr', 'Merchant IN', 1000, 'Shopping', '2026-03-01'), currency: '₹' },
+    { ...tx('usd', 'Merchant US', 100, 'Shopping', '2026-03-02'), currency: '$' }
+  ]);
+  assert.equal(data.total, null);
+  assert.deepEqual(data.totalsByCurrency, [{ currency: '$', total: 100 }, { currency: '₹', total: 1000 }]);
+  assert.equal(data.monthly.length, 0);
+});
+
+test('reconciles two source emails sharing a transaction reference', () => {
+  const data = buildInsights([
+    { ...tx('receipt', 'Merchant', 1200, 'Shopping', '2026-03-01'), referenceId: 'TXN-12345', eventType: 'PURCHASE', paymentStatus: 'COMPLETED' },
+    { ...tx('bank-alert', 'Merchant', 1200, 'Finance', '2026-03-01'), referenceId: 'TXN-12345', eventType: 'PURCHASE', paymentStatus: 'COMPLETED' }
+  ]);
+  assert.equal(data.transactionCount, 1);
+  assert.equal(data.total, 1200);
+});
+
+test('does not turn a refund-policy footer into a refund', () => {
+  const message = {
+    id: 'refund-policy-footer',
+    internalDate: String(Date.now()),
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'Subject', value: 'Payment receipt' },
+        { name: 'From', value: 'Merchant <billing@example.com>' },
+        { name: 'Date', value: new Date().toUTCString() }
+      ],
+      body: { data: Buffer.from('Your payment was completed. Amount paid: ₹999. Refund policy applies to this purchase.').toString('base64url') }
+    }
+  };
+  const parsed = parseEmail(message);
+  assert.equal(parsed.transactionType, 'expense');
+  assert.equal(parsed.eventType, 'PURCHASE');
 });

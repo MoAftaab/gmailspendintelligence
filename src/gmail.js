@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { emailText, isPromotionalText, parseEmail } from './parser.js';
+import { analyzeFinancialText, emailText, isPromotionalText, parseEmail } from './parser.js';
 import { extractTransactionsWithLLM, llmConfigured } from './llm.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
@@ -110,6 +110,7 @@ export async function fetchGmailTransactions(auth, { withLLM = true, includeMess
   const filteredMessages = messages.flatMap((message, index) => {
     if (baselines[index] || !isPromotionalText(emailText(message).text)) return [];
     const content = emailText(message);
+    const assessment = analyzeFinancialText(content.text);
     return [{
       id: message.id,
       sourceUrl: `https://mail.google.com/mail/u/0/#all/${message.threadId || message.id}`,
@@ -117,13 +118,34 @@ export async function fetchGmailTransactions(auth, { withLLM = true, includeMess
       sender: content.from || 'Unknown sender',
       date: content.dateHeader || (message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null),
       snippet: message.snippet || content.body.slice(0, 180),
+      amount: assessment.candidate?.candidate?.amount || null,
+      currency: assessment.candidate?.candidate?.currency || null,
+      evidenceText: assessment.candidate?.evidence || null,
       label: 'Promotional / newsletter',
       reason: 'Excluded from spending totals because it looks like marketing content without a confirmed payment.'
     }];
   });
+  const reviewMessages = messages.flatMap((message, index) => {
+    const assessment = analyzeFinancialText(emailText(message).text);
+    if (baselines[index] || assessment.route !== 'UNCERTAIN') return [];
+    const content = emailText(message);
+    return [{
+      id: message.id,
+      sourceUrl: `https://mail.google.com/mail/u/0/#all/${message.threadId || message.id}`,
+      subject: content.subject || 'Untitled email',
+      sender: content.from || 'Unknown sender',
+      date: content.dateHeader || (message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null),
+      snippet: message.snippet || content.body.slice(0, 180),
+      amount: assessment.candidate?.candidate?.amount || null,
+      currency: assessment.candidate?.candidate?.currency || null,
+      evidenceText: assessment.candidate?.evidence || null,
+      label: 'Review needed',
+      reason: 'The email contains a possible amount or financial phrase, but the payment event could not be verified automatically.'
+    }];
+  });
   if (!withLLM) {
     const transactions = baselines.filter(Boolean);
-    return includeMessages ? { transactions, messages, baselines, filteredMessages } : transactions;
+    return includeMessages ? { transactions, messages, baselines, filteredMessages, reviewMessages } : transactions;
   }
   if (!llmConfigured) return baselines.filter(Boolean);
 

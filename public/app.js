@@ -97,20 +97,22 @@ function showDashboard(data, mode = '') {
   $('dataMode').textContent = `${mode ? `· ${mode}` : ''}${data.llmUsed ? ` · AI ASSISTED${data.llmModel ? ` (${data.llmModel})` : ''}` : data.llmPending ? ' · AI ENRICHMENT PENDING' : ''}`;
   $('scanMeta').textContent = `${data.transactionCount} transactions found · analyzed ${new Date(data.generatedAt).toLocaleString('en-IN')}`;
   renderInsights(data.insights || [], data.transactions || []);
-  $('totalSpend').textContent = formatMoney(data.total);
+  $('totalSpend').textContent = data.total === null ? (data.totalsByCurrency || []).map((item) => formatMoney(item.total, item.currency)).join(' · ') || 'No verified total' : formatMoney(data.total, data.currency);
   $('transactionCount').textContent = `${data.transactionCount} source emails analyzed`;
-  $('topCategory').textContent = data.categories[0]?.name || '—';
-  $('topCategoryAmount').textContent = data.categories[0] ? formatMoney(data.categories[0].total) : 'No data';
-  $('topMerchant').textContent = data.merchants[0]?.name || '—';
-  $('topMerchantAmount').textContent = data.merchants[0] ? formatMoney(data.merchants[0].total) : 'No data';
+  const mixedCurrencies = !data.currency && (data.totalsByCurrency || []).length > 1;
+  $('topCategory').textContent = mixedCurrencies ? 'Multiple currencies' : data.categories[0]?.name || '—';
+  $('topCategoryAmount').textContent = mixedCurrencies ? 'See breakdown' : data.categories[0] ? formatMoney(data.categories[0].total, data.categories[0].currency) : 'No data';
+  $('topMerchant').textContent = mixedCurrencies ? 'Multiple currencies' : data.merchants[0]?.name || '—';
+  $('topMerchantAmount').textContent = mixedCurrencies ? 'See breakdown' : data.merchants[0] ? formatMoney(data.merchants[0].total, data.merchants[0].currency) : 'No data';
   $('recurringCount').textContent = data.recurring.length;
-  $('recurringAmount').textContent = data.recurring.length ? `${formatMoney(data.recurring.reduce((sum, item) => sum + item.average, 0))} avg.` : 'No patterns yet';
-  renderChart(data.monthly);
+  $('recurringAmount').textContent = data.recurring.length ? data.currency ? `${formatMoney(data.recurring.reduce((sum, item) => sum + item.average, 0), data.currency)} avg.` : 'Multiple currencies' : 'No patterns yet';
+  renderChart(data.monthly, data.currency, (data.totalsByCurrency || []).length > 1);
   renderCategories(data.categories);
   renderAlerts(data.unusual, data.upcoming || []);
   renderRecurring(data.recurring);
   renderTransactions(data.transactions);
   renderFilteredMessages(data.filteredMessages || []);
+  renderReviewMessages(data.reviewMessages || []);
   if (data.llmUsed) setAiGenerationState(false);
 }
 
@@ -125,21 +127,21 @@ function renderInsights(insights, transactions) {
   }).join('');
 }
 
-function renderChart(monthly) {
+function renderChart(monthly, currency, mixedCurrencies = false) {
   const max = Math.max(...monthly.map((item) => Math.max(0, Number(item.total) || 0)), 1);
   $('chart').innerHTML = monthly.length ? monthly.map((item) => {
     const positiveTotal = Math.max(0, Number(item.total) || 0);
     const height = Math.min(100, positiveTotal / max * 100);
     const minHeight = height > 0 ? 8 : 0;
-    return `<div class="chart-col"><div class="chart-value">${escapeHtml(formatMoney(item.total))}</div><div class="chart-bar-wrap"><div class="chart-bar" style="height:${height}%;min-height:${minHeight}px"></div></div><div class="chart-label">${escapeHtml(item.month)}</div></div>`;
-  }).join('') : '<div class="empty">Not enough dated emails to show a trend.</div>';
+    return `<div class="chart-col"><div class="chart-value">${escapeHtml(formatMoney(item.total, item.currency))}</div><div class="chart-bar-wrap"><div class="chart-bar" style="height:${height}%;min-height:${minHeight}px"></div></div><div class="chart-label">${escapeHtml(item.month)}</div></div>`;
+  }).join('') : `<div class="empty">${mixedCurrencies ? 'Select one currency to show a comparable spending trend.' : 'Not enough dated emails to show a trend.'}</div>`;
 }
 
 function renderCategories(categories) {
   const max = Math.max(...categories.map((item) => Math.max(0, Number(item.total) || 0)), 1);
   $('categoryList').innerHTML = categories.slice(0, 6).map((item) => {
     const width = Math.min(100, Math.max(0, Number(item.total) || 0) / max * 100);
-    return `<div class="bar-item"><div class="bar-meta"><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(formatMoney(item.total))}</strong></div><div class="track"><div style="width:${width}%"></div></div></div>`;
+    return `<div class="bar-item"><div class="bar-meta"><span>${escapeHtml(item.name)}</span><strong>${escapeHtml(formatMoney(item.total, item.currency))}</strong></div><div class="track"><div style="width:${width}%"></div></div></div>`;
   }).join('') || '<div class="empty">No categories found.</div>';
 }
 
@@ -155,7 +157,7 @@ function renderAlerts(alerts, upcoming) {
 }
 
 function renderRecurring(items) {
-  $('recurringList').innerHTML = items.slice(0, 6).map((item) => `<div class="recurring-item"><div class="merchant-dot">${escapeHtml(item.merchant.slice(0, 1).toUpperCase())}</div><div><strong>${escapeHtml(item.merchant)}</strong><small>${escapeHtml(item.category)} · ${item.count} payments</small></div><b>${escapeHtml(formatMoney(item.average))}</b></div>`).join('') || '<div class="empty">Recurring patterns appear after repeated payments.</div>';
+  $('recurringList').innerHTML = items.slice(0, 6).map((item) => `<div class="recurring-item"><div class="merchant-dot">${escapeHtml(item.merchant.slice(0, 1).toUpperCase())}</div><div><strong>${escapeHtml(item.merchant)}</strong><small>${escapeHtml(item.category)} · ${item.count} payments</small></div><b>${escapeHtml(formatMoney(item.average, item.currency))}</b></div>`).join('') || '<div class="empty">Recurring patterns appear after repeated payments.</div>';
 }
 
 function renderTransactions(items) {
@@ -180,7 +182,27 @@ function renderFilteredMessages(items) {
   $('filteredList').innerHTML = items.slice(0, 10).map((item) => {
     const href = sourceHref(item.sourceUrl);
     const sourceLink = href ? `<a class="source-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Review email ↗</a>` : '';
-    return `<div class="filtered-item"><div><strong>${escapeHtml(item.subject)}</strong><small>${escapeHtml(item.sender)} · ${escapeHtml(item.snippet || '')}</small><p>${escapeHtml(item.reason)}</p></div><div class="filtered-meta"><span class="filter-tag">${escapeHtml(item.label)}</span>${sourceLink}</div></div>`;
+    const candidate = item.amount ? `<small>Candidate amount: ${escapeHtml(formatMoney(item.amount, item.currency))}</small>` : '';
+    const evidence = item.evidenceText ? `<p class="evidence">Evidence: “${escapeHtml(item.evidenceText)}”</p>` : '';
+    return `<div class="filtered-item"><div><strong>${escapeHtml(item.subject)}</strong><small>${escapeHtml(item.sender)} · ${escapeHtml(item.snippet || '')}</small>${candidate}<p>${escapeHtml(item.reason)}</p>${evidence}</div><div class="filtered-meta"><span class="filter-tag">${escapeHtml(item.label)}</span>${sourceLink}</div></div>`;
+  }).join('');
+}
+
+function renderReviewMessages(items) {
+  const panel = $('reviewPanel');
+  if (!panel) return;
+  if (!items.length) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  $('reviewCount').textContent = items.length;
+  $('reviewList').innerHTML = items.slice(0, 10).map((item) => {
+    const href = sourceHref(item.sourceUrl);
+    const sourceLink = href ? `<a class="source-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Review email ↗</a>` : '';
+    const candidate = item.amount ? `<small>Candidate amount: ${escapeHtml(formatMoney(item.amount, item.currency))}</small>` : '';
+    const evidence = item.evidenceText ? `<p class="evidence">Evidence: “${escapeHtml(item.evidenceText)}”</p>` : '';
+    return `<div class="filtered-item"><div><strong>${escapeHtml(item.subject)}</strong><small>${escapeHtml(item.sender)} · ${escapeHtml(item.snippet || '')}</small>${candidate}<p>${escapeHtml(item.reason)}</p>${evidence}</div><div class="filtered-meta"><span class="filter-tag review-tag">Review needed</span>${sourceLink}</div></div>`;
   }).join('');
 }
 
