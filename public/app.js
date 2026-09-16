@@ -18,6 +18,9 @@ const normalizeCurrency = (currency = '₹') => {
   return String(currency).trim() || '₹';
 };
 const formatMoney = (value, currency = '₹') => `${normalizeCurrency(currency)}${Math.round(value).toLocaleString('en-IN')}`;
+// The overview card is a spending display. Keep the underlying net value intact,
+// but do not expose a leading minus sign when refunds exceed purchases.
+const formatDisplayedTotal = (value, currency = '₹') => formatMoney(Math.abs(Number(value) || 0), currency);
 const formatTransactionMoney = (item) => `${item.transactionType === 'refund' ? '-' : ''}${formatMoney(item.amount, item.currency)}`;
 const formatTransactionType = (type) => ({ refund: 'REFUND', income: 'INCOME', transfer: 'TRANSFER' }[type] || '');
 const formatDate = (value) => {
@@ -97,7 +100,7 @@ function showDashboard(data, mode = '') {
   $('dataMode').textContent = `${mode ? `· ${mode}` : ''}${data.llmUsed ? ` · AI ASSISTED${data.llmModel ? ` (${data.llmModel})` : ''}` : data.llmPending ? ' · AI ENRICHMENT PENDING' : ''}`;
   $('scanMeta').textContent = `${data.transactionCount} transactions found · analyzed ${new Date(data.generatedAt).toLocaleString('en-IN')}`;
   renderInsights(data.insights || [], data.transactions || []);
-  $('totalSpend').textContent = data.total === null ? (data.totalsByCurrency || []).map((item) => formatMoney(item.total, item.currency)).join(' · ') || 'No verified total' : formatMoney(data.total, data.currency);
+  $('totalSpend').textContent = data.total === null ? (data.totalsByCurrency || []).map((item) => formatDisplayedTotal(item.total, item.currency)).join(' · ') || 'No verified total' : formatDisplayedTotal(data.total, data.currency);
   $('transactionCount').textContent = `${data.transactionCount} source emails analyzed`;
   const mixedCurrencies = !data.currency && (data.totalsByCurrency || []).length > 1;
   $('topCategory').textContent = mixedCurrencies ? 'Multiple currencies' : data.categories[0]?.name || '—';
