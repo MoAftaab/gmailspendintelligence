@@ -19,6 +19,8 @@ export function buildInsights(input) {
   const total = transactions.reduce((sum, item) => sum + item.amount, 0);
   const categories = aggregate(transactions, 'category');
   const merchants = aggregate(transactions, 'merchant');
+  const latestMonth = transactions[0] ? new Date(transactions[0].date).toISOString().slice(0, 7) : null;
+  const latestMonthCategories = aggregate(transactions.filter((item) => new Date(item.date).toISOString().slice(0, 7) === latestMonth), 'category');
   const monthlyMap = transactions.reduce((out, item) => {
     const key = monthKey(item.date);
     out[key] = (out[key] || 0) + item.amount;
@@ -46,7 +48,11 @@ export function buildInsights(input) {
     }
   }
   const insights = [];
-  if (categories[0]) insights.push({ type: 'category', title: `${categories[0].name} is your largest category`, body: `You spent ${money(categories[0].total)} in ${categories[0].name} across the scanned emails.`, transaction: transactions.find((t) => t.category === categories[0].name) });
+  if (categories[0]) {
+    const monthCategory = latestMonthCategories[0] || categories[0];
+    const monthLabel = transactions[0] ? new Date(transactions[0].date).toLocaleDateString('en-IN', { month: 'long' }) : 'this period';
+    insights.push({ type: 'category', title: `${monthCategory.name} is your highest-spend category`, body: `You spent ${money(monthCategory.total)} on ${monthCategory.name.toLowerCase()} in ${monthLabel}, your highest spending category.`, transaction: transactions.find((t) => t.category === monthCategory.name) });
+  }
   if (monthly.length >= 2) {
     const current = monthly.at(-1);
     const previous = monthly.at(-2);

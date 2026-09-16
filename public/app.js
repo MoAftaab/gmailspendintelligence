@@ -16,6 +16,7 @@ function showDashboard(data, mode = '') {
   $('dashboard').classList.remove('hidden');
   $('dataMode').textContent = mode ? `· ${mode}` : '';
   $('scanMeta').textContent = `${data.transactionCount} transactions found · analyzed ${new Date(data.generatedAt).toLocaleString('en-IN')}`;
+  renderInsights(data.insights || []);
   $('totalSpend').textContent = formatMoney(data.total);
   $('transactionCount').textContent = `${data.transactionCount} source emails analyzed`;
   $('topCategory').textContent = data.categories[0]?.name || '—';
@@ -29,6 +30,11 @@ function showDashboard(data, mode = '') {
   renderAlerts(data.unusual, data.upcoming || []);
   renderRecurring(data.recurring);
   renderTransactions(data.transactions);
+}
+
+function renderInsights(insights) {
+  const icons = { category: '↗', 'trend-up': '↑', 'trend-down': '↓', alert: '!' };
+  $('insightStrip').innerHTML = insights.slice(0, 3).map((item) => `<article class="insight-card ${item.type === 'alert' ? 'insight-alert' : ''}"><span class="insight-icon">${icons[item.type] || '•'}</span><div><strong>${item.title}</strong><p>${item.body}</p></div></article>`).join('');
 }
 
 function renderChart(monthly) {
