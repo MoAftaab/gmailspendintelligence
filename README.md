@@ -2,6 +2,8 @@
 
 Ledgerly is a read-only Gmail spending dashboard. It asks the user for permission through Google OAuth, searches transaction-like email, extracts basic transaction fields, and presents totals, category and merchant breakdowns, recurring payments, trends, unusual-payment explanations, and links back to source emails.
 
+The project also includes [DEMO.md](DEMO.md), a short live-demo script for the assessment. Demo mode includes an upcoming renewal so the end-to-end product story can be shown without exposing a real mailbox.
+
 ## Run locally
 
 Requirements: Node.js 20+ and a Google Cloud project.
@@ -49,6 +51,7 @@ Browser
 - **Search first, then fetch:** Gmail search reduces the number of messages that need to be downloaded. The first version caps the scan at 3,000 matching messages to keep a local demo responsive.
 - **Traceability:** each transaction keeps Gmail `messageId`, `threadId`, subject, sender, and a Gmail thread link.
 - **Explainable flags:** repeat merchants are compared with their median historical payment. A payment is flagged when it is materially larger, or when a high-value payment is from a merchant seen only once.
+- **Upcoming payments:** due/renewal language is parsed when present, and payments due within the next 45 days are surfaced alongside unusual transactions.
 - **No AI by default:** financial extraction is deterministic and inspectable. A production version could use an LLM only for ambiguous emails, with redaction, structured JSON validation, and strict retention controls.
 - **Demo mode:** sample data makes the product reviewable before OAuth credentials are configured.
 
