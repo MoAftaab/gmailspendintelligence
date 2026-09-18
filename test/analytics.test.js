@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildInsights } from '../src/analytics.js';
 import { analyzeFinancialText, isPromotionalText, normalizeCurrency, parseEmail } from '../src/parser.js';
+import { chunkCandidates, selectLLMCandidates } from '../src/llm-selection.js';
 
 const tx = (id, merchant, amount, category, date, recurringCandidate = false) => ({ id, merchant, amount, currency: '₹', category, date, recurringCandidate, sourceUrl: '#', transactionType: 'expense', eventType: 'PURCHASE', paymentStatus: 'COMPLETED', direction: 'OUTGOING' });
 
@@ -188,4 +189,41 @@ test('does not turn a refund-policy footer into a refund', () => {
   const parsed = parseEmail(message);
   assert.equal(parsed.transactionType, 'expense');
   assert.equal(parsed.eventType, 'PURCHASE');
+});
+
+test('prioritizes ambiguous emails across the full scan for LLM enrichment', () => {
+  const clearMessages = Array.from({ length: 10 }, (_, index) => ({
+    id: `clear-${index}`,
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'Subject', value: 'Payment receipt' },
+        { name: 'From', value: 'Merchant <billing@example.com>' },
+        { name: 'Date', value: new Date().toUTCString() }
+      ],
+      body: { data: Buffer.from('Payment processed successfully. Amount paid: ₹100.').toString('base64url') }
+    }
+  }));
+  const ambiguous = {
+    id: 'ambiguous-18',
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'Subject', value: 'Billing update required' },
+        { name: 'From', value: 'Merchant <billing@example.com>' },
+        { name: 'Date', value: new Date().toUTCString() }
+      ],
+      body: { data: Buffer.from('Your billing account contains ₹9,999. Update your payment method.').toString('base64url') }
+    }
+  };
+  const selected = selectLLMCandidates([...clearMessages, ambiguous], Array(11).fill(null), 1);
+  assert.equal(selected[0].message.id, 'ambiguous-18');
+  assert.equal(selected[0].analysis.route, 'UNCERTAIN');
+});
+
+test('processes every number of ambiguous candidates in bounded LLM batches', () => {
+  const candidates = Array.from({ length: 37 }, (_, index) => ({ id: `ambiguous-${index}` }));
+  const batches = chunkCandidates(candidates, 10);
+  assert.deepEqual(batches.map((batch) => batch.length), [10, 10, 10, 7]);
+  assert.equal(batches.flat().length, 37);
 });

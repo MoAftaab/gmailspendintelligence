@@ -8,6 +8,7 @@ import { fetchGmailTransactions, getHistoryState, gmailConfigured, getGoogleAuth
 import { buildInsights, demoTransactions } from './src/analytics.js';
 import { enrichInsightsWithLLM, extractTransactionsWithLLM, llmConfigured } from './src/llm.js';
 import { analyzeFinancialText, emailText } from './src/parser.js';
+import { chunkCandidates, selectLLMCandidates } from './src/llm-selection.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -138,25 +139,44 @@ async function getAiTransactions(req) {
   if (scan.aiReady) return scan.transactions;
   if (!llmConfigured) return scan.transactions;
   const limit = Math.min(scan.messages.length, Math.max(1, Math.min(Number(process.env.OPENAI_MAX_EMAILS || 10), 10)));
-  const enriched = await extractTransactionsWithLLM(scan.messages.slice(0, limit), scan.baselines.slice(0, limit));
+  const selected = selectLLMCandidates(scan.messages, scan.baselines, scan.messages.length)
+    .filter((item) => item.analysis.route === 'UNCERTAIN');
+  const enrichedResults = [];
+  for (const batch of chunkCandidates(selected, limit)) {
+    const results = await extractTransactionsWithLLM(
+      batch.map((item) => item.message),
+      batch.map((item) => item.baseline)
+    );
+    batch.forEach((item, index) => enrichedResults.push({ item, result: results[index] }));
+  }
   if (req.session.gmailScan?.scanId !== scan.scanId || req.session.gmailScan?.accountEmail !== req.session.email) {
     return req.session.gmailScan?.transactions || [];
   }
-  const rejectedByAI = scan.messages.slice(0, limit).flatMap((message, index) => enriched[index] ? [] : [{
-    ...(() => {
-      const content = emailText(message);
-      const assessment = analyzeFinancialText(content.text);
-      return { amount: assessment.candidate?.candidate?.amount || null, currency: assessment.candidate?.candidate?.currency || null, evidenceText: assessment.candidate?.evidence || null };
-    })(),
-    id: message.id,
-    sourceUrl: `https://mail.google.com/mail/u/0/#all/${message.threadId || message.id}`,
-    subject: message.payload?.headers?.find((header) => header.name?.toLowerCase() === 'subject')?.value || 'Untitled email',
-    sender: message.payload?.headers?.find((header) => header.name?.toLowerCase() === 'from')?.value || 'Unknown sender',
-    snippet: message.snippet || '',
-    label: 'Review needed',
-    reason: 'The AI classifier could not validate this email as a completed financial event, so it was excluded from spending totals.'
-  }]);
-  scan.transactions = [...enriched, ...scan.baselines.slice(limit)].filter(Boolean);
+  const enrichedByMessageId = new Map();
+  const rejectedByAI = [];
+  enrichedResults.forEach(({ item, result }) => {
+    if (result) {
+      enrichedByMessageId.set(item.message.id, result);
+      return;
+    }
+    if (item.analysis.route !== 'UNCERTAIN') return;
+    const candidate = item.analysis.candidates?.[0]?.candidate || item.analysis.candidate?.candidate;
+    const evidenceText = item.analysis.candidates?.[0]?.evidence || item.analysis.candidate?.evidence;
+    const content = emailText(item.message);
+    rejectedByAI.push({
+      id: item.message.id,
+      sourceUrl: `https://mail.google.com/mail/u/0/#all/${item.message.threadId || item.message.id}`,
+      subject: content.subject || 'Untitled email',
+      sender: content.from || 'Unknown sender',
+      snippet: item.message.snippet || content.body.slice(0, 180),
+      amount: candidate?.amount || null,
+      currency: candidate?.currency || null,
+      evidenceText: evidenceText || null,
+      label: 'Review needed',
+      reason: 'The AI classifier could not validate this email as a completed financial event, so it was excluded from spending totals.'
+    });
+  });
+  scan.transactions = scan.messages.map((message, index) => enrichedByMessageId.get(message.id) || scan.baselines[index]).filter(Boolean);
   scan.reviewMessages = [...(scan.reviewMessages || []), ...rejectedByAI].filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index);
   scan.aiReady = true;
   req.session.gmailScan = scan;

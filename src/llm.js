@@ -142,7 +142,8 @@ function receivedDateFor(message) {
 function focusedExcerpt(message, analysis) {
   const content = emailText(message);
   const body = content.body || '';
-  const amount = analysis.amountCandidate?.amount;
+  const candidate = analysis.amountCandidate || analysis.candidate || analysis.candidates?.[0]?.candidate;
+  const amount = candidate?.amount;
   const amountIndex = amount ? body.search(new RegExp(`(?:₹|INR|Rs\\.?|\\$|USD|€|EUR|£|GBP)?\\s*${String(amount).replace('.', '\\.')}`, 'i')) : -1;
   if (amountIndex >= 0) return body.slice(Math.max(0, amountIndex - 320), Math.min(body.length, amountIndex + 420));
   return body.slice(0, 1200);

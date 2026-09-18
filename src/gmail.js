@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { analyzeFinancialText, emailText, isPromotionalText, parseEmail } from './parser.js';
 import { extractTransactionsWithLLM, llmConfigured } from './llm.js';
+import { chunkCandidates, selectLLMCandidates } from './llm-selection.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 export const gmailConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -150,6 +151,19 @@ export async function fetchGmailTransactions(auth, { withLLM = true, includeMess
   if (!llmConfigured) return baselines.filter(Boolean);
 
   const llmLimit = Math.min(messages.length, Math.max(1, Math.min(Number(process.env.OPENAI_MAX_EMAILS || 10), 10)));
-  const enriched = await extractTransactionsWithLLM(messages.slice(0, llmLimit), baselines.slice(0, llmLimit));
-  return [...enriched, ...baselines.slice(llmLimit)].filter(Boolean);
+  const selected = selectLLMCandidates(messages, baselines, messages.length)
+    .filter((item) => item.analysis.route === 'UNCERTAIN');
+  const enrichedByMessageId = new Map();
+  const batches = chunkCandidates(selected, llmLimit);
+  for (const batch of batches) {
+    const results = await extractTransactionsWithLLM(
+      batch.map((item) => item.message),
+      batch.map((item) => item.baseline)
+    );
+    batch.forEach((item, index) => {
+      const result = results[index] || item.baseline;
+      if (result) enrichedByMessageId.set(item.message.id, result);
+    });
+  }
+  return messages.map((message, index) => enrichedByMessageId.get(message.id) || baselines[index]).filter(Boolean);
 }
